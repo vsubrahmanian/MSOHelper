@@ -13,9 +13,9 @@
 			<key>type</key>
 			<string>textField</string>
 			<key>title</key>
-			<string>Last Name</string>
+			<string>Last Name (required)</string>
 			<key>sectionTitle</key>
-			<string>Last Name</string>
+			<string>Last Name (required)</string>
 			<key>placeholder</key>
 			<string>Enter Last Name</string>
 			<key>cellHeight</key>

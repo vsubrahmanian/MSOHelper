@@ -7,10 +7,16 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "MSOContactInfoModel.h"
 
 @protocol MSOContactHelperDelegate <NSObject>
 
-- (void)contactsFetchResponse:(NSArray *)iContacts andError:(NSError *)iError;
+@optional
+
+- (void)getContactsResponse:(NSArray *)iContacts andError:(NSError *)iError;
+- (void)updateContactError:(NSError *)iError;
+- (void)createContactResponse:(MSOContactInfoModel *)iContact andError:(NSError *)iError;
+- (void)deleteContactError:(NSError *)iError;
 
 @end
 
@@ -20,8 +26,8 @@
 
 - (id)initWithADAuthToken:(NSString *)iToken andResourceID:(NSString *)iResourceID;
 - (void)getContacts;
-- (void)createContactWithDictionary:(NSDictionary *)iDictionary; // NOT TESTED
-- (void)updateContactID:(int)contactID withData:(NSData *)data; // NOT TESTED
-- (void)deleteContactID:(int)contactID; // NOT TESTED
+- (void)createContactWithContactInfo:(MSOContactInfoModel *)iContactInfo;
+- (void)updateContactID:(NSUInteger)iContactID withContactInfo:(MSOContactInfoModel *)iContactInfo;
+- (void)deleteContactID:(NSUInteger)contactID;
 
 @end

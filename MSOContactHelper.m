@@ -10,11 +10,11 @@
 #import <office365_odata_base/office365_odata_base.h>
 #import <office365-lists-sdk/OAuthentication.h>
 #import <office365-lists-sdk/HttpConnection.h>
-#import "MSOContactInfoModel.h"
 
 @interface MSOContactHelper()
 
 @property (nonatomic, strong) OAuthentication *authCredentials;
+
 @property (nonatomic, strong) NSString *resourceID;
 
 @end
@@ -43,58 +43,62 @@
     __block NSArray *aContactList = nil;
     
     [[connection execute:@"GET" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
-         aContactList = [self handleResponse:data withResponse:response andError:error];
-        NSArray *array = [self createContactObjectsWithArray:aContactList];
+        aContactList = [self handleResponse:data withResponse:response andError:error];
+        NSArray *array = [self contactObjectsFromArray:aContactList];
         
-        if ([self.delegate respondsToSelector:@selector(contactsFetchResponse:andError:)]) {
-            [self.delegate contactsFetchResponse:array andError:error];
+        if ([self.delegate respondsToSelector:@selector(getContactsResponse:andError:)]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.delegate getContactsResponse:array andError:error];
+            });
         }
     }] resume];
 }
 
-- (NSArray *)createContactObjectsWithArray:(NSArray *)iArray {
-    NSString *filePath = [[NSBundle mainBundle] pathForResource:@"contactRelation" ofType:@"plist"];
-    NSDictionary *aContactRelationDictionary = (NSDictionary *)[[NSDictionary dictionaryWithContentsOfFile:filePath] valueForKey:@"contactFields"];
-
-    NSMutableArray *aNewContactArray = [[NSMutableArray alloc] init];
-    for (NSDictionary *aContactData in iArray) {
-        MSOContactInfoModel *aContact = [[MSOContactInfoModel alloc] init];
-
-        for (NSDictionary *aContactRelation in [aContactRelationDictionary allValues]) {
-            NSString *identifierKey = [aContactRelation valueForKey:@"identifier"];
-            NSString *variableKey = [aContactRelation valueForKey:@"key"];
-            
-            [aContact setFieldValue:[aContactData valueForKeyPath:identifierKey] forKey:variableKey];
-            aContact.ID = [aContactData valueForKeyPath:@"ID"];
+- (void)createContact:(NSData *)iData {
+    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items", self.resourceID, [@"Contacts" urlencode]];
+    HttpConnection *connection = [[HttpConnection alloc] initWithCredentials:self.authCredentials url:url bodyArray:iData];
+    
+    [[connection execute:@"POST" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSArray *aContactList = [self handleResponse:data withResponse:response andError:error];
+        
+        if ([self.delegate respondsToSelector:@selector(createContactResponse:andError:)]) {
+            NSArray *array = [self contactObjectsFromArray:aContactList];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.delegate createContactResponse:(MSOContactInfoModel *)[array lastObject] andError:error];
+            });
         }
-        [aNewContactArray addObject:aContact];
-    }
-    return aNewContactArray;
+    }] resume];
 }
 
-- (void)createContactWithDictionary:(NSDictionary *)iDictionary {
+- (void)createContactWithContactInfo:(MSOContactInfoModel *)iContactInfo {
     NSError *anError;
-    NSData *aContactData = [NSJSONSerialization dataWithJSONObject:iDictionary options:0 error:&anError];
-
+    NSData *aContactData = [NSJSONSerialization dataWithJSONObject:[self dictionaryFromContactInfo:iContactInfo] options:0 error:&anError];
+    
     if (anError) {
         NSLog(@"Error: %@", anError.localizedDescription);
     } else {
         [self createContact:aContactData];
     }
 }
-    
-- (void)createContact:(NSData *)iData {
-    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items", self.resourceID, [@"Contacts" urlencode]];
+
+- (void)updateContactID:(NSUInteger)iContactID withData:(NSData *)iData {
+    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items(%ld)", self.resourceID, [@"Contacts" urlencode], iContactID];
     HttpConnection *connection = [[HttpConnection alloc] initWithCredentials:self.authCredentials url:url bodyArray:iData];
     
-    [[connection execute:@"POST" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
+    [[connection execute:@"MERGE" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
         [self handleResponse:data withResponse:response andError:error];
+
+        if ([self.delegate respondsToSelector:@selector(updateContactError:)]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.delegate updateContactError:error];
+            });
+        }
     }] resume];
 }
 
-- (void)updateContactID:(int)iContactID withDictionary:(NSDictionary *)iDictionary {
+- (void)updateContactID:(NSUInteger)iContactID withContactInfo:(MSOContactInfoModel *)iContactInfo {
     NSError *anError;
-    NSData *aContactData = [NSJSONSerialization dataWithJSONObject:iDictionary options:0 error:&anError];
+    NSData *aContactData = [NSJSONSerialization dataWithJSONObject:[self dictionaryFromContactInfo:iContactInfo] options:0 error:&anError];
     
     if (anError) {
         NSLog(@"Error: %@", anError.localizedDescription);
@@ -103,21 +107,18 @@
     }
 }
 
-- (void)updateContactID:(int)iContactID withData:(NSData *)iData {
-    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items(%d)", self.resourceID, [@"Contacts" urlencode], iContactID];
-    HttpConnection *connection = [[HttpConnection alloc] initWithCredentials:self.authCredentials url:url bodyArray:iData];
-    
-    [[connection execute:@"MERGE" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
-        [self handleResponse:data withResponse:response andError:error];
-    }] resume];
-}
-
-- (void)deleteContactID:(int)iContactID {
-    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items(%d)", self.resourceID, [@"Contacts" urlencode], iContactID];
+- (void)deleteContactID:(NSUInteger)iContactID {
+    NSString *url = [NSString stringWithFormat:@"%@/sites/portal/_api/lists/GetByTitle('%@')/Items(%ld)", self.resourceID, [@"Contacts" urlencode], iContactID];
     HttpConnection *connection = [[HttpConnection alloc] initWithCredentials:self.authCredentials url:url];
     
     [[connection execute:@"DELETE" callback:^(NSData *data, NSURLResponse *response, NSError *error) {
         [self handleResponse:data withResponse:response andError:error];
+
+        if ([self.delegate respondsToSelector:@selector(deleteContactError:)]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.delegate deleteContactError:error];
+            });
+        }
     }] resume];
 }
 
@@ -138,16 +139,49 @@
     return array;
 }
 
+- (NSArray *)contactObjectsFromArray:(NSArray *)iArray {
+    NSString *filePath = [[NSBundle mainBundle] pathForResource:@"contactRelation" ofType:@"plist"];
+    NSDictionary *aContactRelationDictionary = (NSDictionary *)[[NSDictionary dictionaryWithContentsOfFile:filePath] valueForKey:@"contactFields"];
+    
+    NSMutableArray *aNewContactArray = [[NSMutableArray alloc] init];
+    for (NSDictionary *aContactData in iArray) {
+        MSOContactInfoModel *aContact = [[MSOContactInfoModel alloc] init];
+        
+        for (NSDictionary *aContactRelation in [aContactRelationDictionary allValues]) {
+            NSString *identifierKey = [aContactRelation valueForKey:@"identifier"];
+            NSString *variableKey = [aContactRelation valueForKey:@"key"];
+            
+            [aContact setFieldValue:[aContactData valueForKeyPath:identifierKey] forKey:variableKey];
+            aContact.ID = [[aContactData valueForKeyPath:@"ID"] integerValue];
+        }
+        [aNewContactArray addObject:aContact];
+    }
+    return aNewContactArray;
+}
+
+- (NSDictionary *)dictionaryFromContactInfo:(MSOContactInfoModel *)iContactInfo {
+    NSString *filePath = [[NSBundle mainBundle] pathForResource:@"contactRelation" ofType:@"plist"];
+    NSDictionary *aContactRelationDictionary = (NSDictionary *)[[NSDictionary dictionaryWithContentsOfFile:filePath] valueForKey:@"contactFields"];
+    NSMutableDictionary *aContactDicionary = [[NSMutableDictionary alloc] init];
+    
+    for (NSDictionary *aContactRelation in [aContactRelationDictionary allValues]) {
+        
+        NSString *identifierKey = [aContactRelation valueForKey:@"identifier"];
+        NSString *variableKey = [aContactRelation valueForKey:@"key"];
+        [aContactDicionary setValue:[iContactInfo valueForKeyPath:variableKey] forKey:identifierKey];
+    }
+    
+    return aContactDicionary;
+}
+
 #pragma mark - Utility methods
 
 - (NSMutableArray *)parseDataArray:(NSData *)iData {
-    
     NSMutableArray *array = [NSMutableArray array];
     NSError *error ;
     NSDictionary *jsonResult = [NSJSONSerialization JSONObjectWithData:[self sanitizeJson:iData]
-                                                               options: NSJSONReadingMutableContainers
+                                                               options:NSJSONReadingMutableContainers
                                                                  error:&error];
-    
     NSArray *jsonArray = [[jsonResult valueForKey:@"d"] valueForKey:@"results"];
     
     if (jsonArray != nil) {
